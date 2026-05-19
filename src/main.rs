@@ -4,13 +4,15 @@ use clap::Args;
 mod crawler;
 
 #[tokio::main]
-async fn main() -> () {
-    let url = "http://localhost:8080";
-    println!("Crawling {url}");
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let start_url = "http://localhost:8080";
+    println!("Crawling {start_url}");
+    let results = crawler::crawl(start_url).await?;
 
-    match crawler::get_page_links(url).await {
-        Ok(urls) => println!("Crawling {url}"),
-        Err(e) => eprintln!("{e}\nInvalid URL: {url}"),
-    };
+    for result in results {
+        println!("{:?}", result);
+    }
+
+    Ok(())
 }
 
