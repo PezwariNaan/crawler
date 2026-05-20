@@ -2,8 +2,9 @@ use scraper::{Html, Selector};
 use std::collections::{HashSet, VecDeque};
 
 // TODO:
-// Stop external domains being added PageResult.links 
-// Filter none https / http refs
+// Add max depth argument
+// Option to print links per page
+// Export option
 
 #[derive(Debug)]
 pub struct PageResult {
