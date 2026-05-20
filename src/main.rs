@@ -1,13 +1,22 @@
-use scraper::{Html, Selector};
-use clap::Args;
+use clap::Parser;
 
 mod crawler;
 
+#[derive(Parser, Debug)]
+struct Args { 
+    /// Url to crawl
+    #[arg(short, long, required = true)]
+    url: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let start_url = "http://localhost:8080";
+    let args = Args::parse();
+
+    let start_url = &args.url;
     println!("Crawling {start_url}");
-    let results = crawler::crawl(start_url).await?;
+    let crawler = crawler::Crawler::new(start_url);
+    let results = crawler.expect("Failed to create crawler").crawl().await;
 
     for result in results {
         println!("{:?}", result);

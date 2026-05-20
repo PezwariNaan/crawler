@@ -2,7 +2,7 @@ use scraper::{Html, Selector};
 use std::collections::{HashSet, VecDeque};
 
 // TODO:
-// Stop domains being added PageResult.links 
+// Stop external domains being added PageResult.links 
 // Filter none https / http refs
 
 #[derive(Debug)]
@@ -12,56 +12,88 @@ pub struct PageResult {
     link_count: usize,
 }
 
-pub async fn crawl(
-    start_url: &str
-    ) -> Result<Vec<PageResult>, Box<dyn std::error::Error>> {
-    
-    let mut queue = VecDeque::new();
-    let mut visited = HashSet::new();
-    let mut page_results = Vec::new();
+pub struct Crawler {
+    queue: VecDeque<String>,
+    queued: HashSet<String>,
+    visited: HashSet<String>,
+    results: Vec<PageResult>,
+    allowed_domain: String,
+}
 
-    queue.push_back(start_url.to_string());
+impl Crawler {
+    pub fn new(start_url: &str) -> Result<Self, Box< dyn std::error::Error>> {
+        let start = url::Url::parse(start_url)?;
 
-    let start = url::Url::parse(start_url)?;
-    let allowed_domain = start.domain().unwrap();
-
-    while let Some(url) = queue.pop_front() {
-
-        let parsed = match url::Url::parse(&url) {
-            Ok(u) => u,
-            Err(_) => continue,
-        };
-
-        let normalised = parsed
-            .as_str()
-            .trim_end_matches('/')
+        let allowed_domain = start
+            .domain()
+            .unwrap()
             .to_string();
 
-        if visited.contains(&normalised) {
-            continue;
-        }
+        let mut crawler = Self {
+            queue: VecDeque::new(),
+            queued: HashSet::new(),
+            visited: HashSet::new(),
+            results: Vec::new(),
+            allowed_domain,
+        };
 
-        if parsed.domain() != Some(&allowed_domain) {
-            continue;
-        }
-
-        visited.insert(normalised.clone());
-
-        let page_result = get_page_links(&url).await?;
-
-        for link in &page_result.links {
-            if let Ok(parsed_link) = url::Url::parse(link) {
-                if parsed_link.domain() == Some(&allowed_domain) &&
-                    !visited.contains(link) {
-                        queue.push_back(link.clone());
-                }
-            }
-        }
-
-        page_results.push(page_result);
+        crawler.enqueue_url(start_url);
+        
+        Ok(crawler)
     }
 
-    Ok(page_results)
+    pub async fn crawl(
+        &mut self
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        while let Some(url) = self.queue.pop_front() {
+            println!("Visiting: {}", url);
+            self.queued.remove(&url);
+
+            if self.visited.contains(&url) {
+                continue;
+            }
+
+            self.visited.insert(url.clone());
+
+            let page_result = get_page_links(&url).await?;
+
+            for link in &page_result.links {
+                self.enqueue_url(link);
+            }
+
+            self.results.push(page_result);
+        }
+
+        Ok(())
+    }
+
+    fn normalise_url(&self, url: &url::Url) -> String {
+        url.as_str().trim_end_matches('/').to_string()
+    }
+
+    fn in_scope(&self, url: &url::Url) -> bool {
+        url.domain() == Some(&self.allowed_domain)
+    }
+
+    fn enqueue_url(
+        &mut self,
+        url: &str,
+    ) {
+        let parsed = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+
+        let normalised = self.normalise_url(&parsed);
+
+        if self.in_scope(&parsed)
+            && !self.visited.contains(&normalised)
+                && !self.queued.contains(&normalised)
+        {
+            self.queued.insert(normalised.clone());
+            self.queue.push_back(normalised);
+        }
+    }
 }
 
 async fn get_page_links(
