@@ -14,15 +14,19 @@ pub struct PageResult {
 }
 
 pub struct Crawler {
-    queue: VecDeque<String>,
+    queue: VecDeque<(String, usize)>,
     queued: HashSet<String>,
     visited: HashSet<String>,
-    results: Vec<PageResult>,
     allowed_domain: String,
+    max_depth: Option<usize>,
+    results: Vec<PageResult>,
 }
 
 impl Crawler {
-    pub fn new(start_url: &str) -> Result<Self, Box< dyn std::error::Error>> {
+    pub fn new(
+        start_url: &str,
+        max_depth: Option<usize>
+    ) -> Result<Self, Box< dyn std::error::Error>> {
         let start = url::Url::parse(start_url)?;
 
         let allowed_domain = start
@@ -36,9 +40,10 @@ impl Crawler {
             visited: HashSet::new(),
             results: Vec::new(),
             allowed_domain,
+            max_depth,
         };
 
-        crawler.enqueue_url(start_url);
+        crawler.enqueue_url(start_url, 0);
         
         Ok(crawler)
     }
@@ -46,9 +51,15 @@ impl Crawler {
     pub async fn crawl(
         &mut self
     ) -> Result<(), Box<dyn std::error::Error>> {
-        while let Some(url) = self.queue.pop_front() {
+        while let Some((url, depth)) = self.queue.pop_front() {
             println!("Visiting: {}", url);
             self.queued.remove(&url);
+
+            if let Some(max_depth) = self.max_depth {
+                if depth > max_depth {
+                    continue;
+                }
+            }
 
             if self.visited.contains(&url) {
                 continue;
@@ -59,13 +70,21 @@ impl Crawler {
             let page_result = get_page_links(&url).await?;
 
             for link in &page_result.links {
-                self.enqueue_url(link);
+                self.enqueue_url(link, depth + 1);
             }
 
             self.results.push(page_result);
         }
 
         Ok(())
+    }
+
+    pub fn results(&self) -> &[PageResult] {
+        &self.results
+    }
+
+    pub fn into_results(self) -> Vec<PageResult> {
+        self.results
     }
 
     fn normalise_url(&self, url: &url::Url) -> String {
@@ -79,6 +98,7 @@ impl Crawler {
     fn enqueue_url(
         &mut self,
         url: &str,
+        depth: usize,
     ) {
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
@@ -92,7 +112,7 @@ impl Crawler {
                 && !self.queued.contains(&normalised)
         {
             self.queued.insert(normalised.clone());
-            self.queue.push_back(normalised);
+            self.queue.push_back((normalised, depth));
         }
     }
 }
